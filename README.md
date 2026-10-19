@@ -30,6 +30,27 @@
 
 # Triton Inference Server Backend
 
+## Upstream Baseline and HYGON Modifications
+
+- Upstream project: Triton Inference Server Backend
+- Upstream repository: https://github.com/triton-inference-server/backend
+- Upstream branch: r26.09
+- Upstream Commit: cb3b36a77377d3d0492697eccd882508ac8c2198
+- Upstream license: BSD-3-Clause
+- Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+
+Modified by Hygon Information Technology Co., Ltd.
+
+HYGON Contributions:
+
+- HCU (Hygon DTK / ROCm) build path: adds the `USE_HCU` CMake option, an HCU
+  compatibility shim header, and HIP compilation of the gather kernel, so the
+  backend utilities build on HCU devices while the default CUDA path stays
+  unchanged.
+- The HCU adaptation is contributed under the repository BSD-3-Clause license.
+  Modified upstream files keep their original NVIDIA copyright and license
+  headers unchanged.
+
 A Triton *backend* is the implementation that executes a model. A
 backend can be a wrapper around a deep-learning framework, like
 PyTorch, TensorFlow, TensorRT or ONNX Runtime. Or a backend can be
