@@ -40,9 +40,9 @@ option(TRITON_ENABLE_MEMORY_TRACKER "Include device memory tracker in backend ut
 # HCU (Hygon DTK / ROCm) instead of NVIDIA CUDA. OFF keeps the original CUDA path.
 option(USE_HCU "Use HCU (Hygon DTK/ROCm) instead of NVIDIA CUDA" OFF)
 
-# Target DTK/DCU GPU architectures for the HIP build (semicolon separated,
+# Target HCU GPU architectures for the HIP build (semicolon separated,
 # e.g. "gfx906;gfx928"). Empty means: use CMAKE_HIP_ARCHITECTURES/compiler default.
-set(DTK_ARCHS "$ENV{AMDGPU_TARGETS}" CACHE STRING "Target DTK/DCU GPU architectures")
+set(DTK_ARCHS "$ENV{AMDGPU_TARGETS}" CACHE STRING "Target HCU GPU architectures")
 
 set(TRITON_REPO_ORGANIZATION "https://github.com/HYGON-AI" CACHE STRING "Git repository to pull from")
 set(TRITON_COMMON_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/common repo")
