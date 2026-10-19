@@ -25,7 +25,11 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
+#ifdef USE_HCU
+#include "triton/backend/hcu_compat.h"
+#else
 #include <cuda_runtime_api.h>
+#endif
 #include <stdint.h>
 
 #ifdef __cplusplus

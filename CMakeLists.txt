@@ -37,7 +37,14 @@ option(TRITON_ENABLE_STATS "Include statistics collections in backend utilities"
 # Default OFF unless backend explicitly request to use provided implementation
 option(TRITON_ENABLE_MEMORY_TRACKER "Include device memory tracker in backend utilities" OFF)
 
-set(TRITON_REPO_ORGANIZATION "https://github.com/triton-inference-server" CACHE STRING "Git repository to pull from")
+# HCU (Hygon DTK / ROCm) instead of NVIDIA CUDA. OFF keeps the original CUDA path.
+option(USE_HCU "Use HCU (Hygon DTK/ROCm) instead of NVIDIA CUDA" OFF)
+
+# Target DTK/DCU GPU architectures for the HIP build (semicolon separated,
+# e.g. "gfx906;gfx928"). Empty means: use CMAKE_HIP_ARCHITECTURES/compiler default.
+set(DTK_ARCHS "$ENV{AMDGPU_TARGETS}" CACHE STRING "Target DTK/DCU GPU architectures")
+
+set(TRITON_REPO_ORGANIZATION "https://github.com/forwithgod" CACHE STRING "Git repository to pull from")
 set(TRITON_COMMON_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/common repo")
 set(TRITON_CORE_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/core repo")
 
@@ -55,21 +62,33 @@ if(TRITON_ENABLE_MEMORY_TRACKER AND NOT TRITON_ENABLE_GPU)
   set(TRITON_ENABLE_MEMORY_TRACKER OFF CACHE BOOL "Device memory tracker disabled" FORCE)
 endif()
 
+# HCU: the device memory tracker relies on CUPTI, which DTK does not provide.
+if(USE_HCU AND TRITON_ENABLE_MEMORY_TRACKER)
+  message(WARNING "USE_HCU=ON: TRITON_ENABLE_MEMORY_TRACKER (CUPTI) is not supported on HCU, forcing it OFF")
+  set(TRITON_ENABLE_MEMORY_TRACKER OFF CACHE BOOL "Device memory tracker disabled" FORCE)
+endif()
+
 #
 # Dependencies
 #
 include(FetchContent)
 
+# HCU: pull the Hygon DTK adapted forks from the configured organization
+set(TRITON_COMMON_GIT_REPOSITORY "${TRITON_REPO_ORGANIZATION}/triton-inference-server-common-das.git")
+set(TRITON_COMMON_GIT_TAG "main")
+set(TRITON_CORE_GIT_REPOSITORY "${TRITON_REPO_ORGANIZATION}/triton-inference-server-core-das.git")
+set(TRITON_CORE_GIT_TAG "main")
+
 FetchContent_Declare(
   repo-common
-  GIT_REPOSITORY ${TRITON_REPO_ORGANIZATION}/common.git
-  GIT_TAG ${TRITON_COMMON_REPO_TAG}
+  GIT_REPOSITORY ${TRITON_COMMON_GIT_REPOSITORY}
+  GIT_TAG ${TRITON_COMMON_GIT_TAG}
   GIT_SHALLOW ON
 )
 FetchContent_Declare(
   repo-core
-  GIT_REPOSITORY ${TRITON_REPO_ORGANIZATION}/core.git
-  GIT_TAG ${TRITON_CORE_REPO_TAG}
+  GIT_REPOSITORY ${TRITON_CORE_GIT_REPOSITORY}
+  GIT_TAG ${TRITON_CORE_GIT_TAG}
   GIT_SHALLOW ON
 )
 FetchContent_MakeAvailable(repo-common repo-core)
@@ -78,14 +97,31 @@ FetchContent_MakeAvailable(repo-common repo-core)
 # CUDA
 #
 if(${TRITON_ENABLE_GPU})
-  find_package(CUDAToolkit REQUIRED)
-  set(CMAKE_CUDA_RUNTIME_LIBRARY Shared)
-  message(STATUS "Using CUDA ${CUDAToolkit_VERSION}")
-
-  if(CUDAToolkit_VERSION VERSION_GREATER "10.1" OR CUDAToolkit_VERSION VERSION_EQUAL "10.1")
-    add_definitions(-DTRITON_ENABLE_CUDA_GRAPH=1)
+  if(USE_HCU)
+    # HCU: use the Hygon DTK / ROCm HIP toolchain instead of CUDA
+    if(DEFINED ENV{DTK_PATH})
+      set(DTK_PATH $ENV{DTK_PATH} CACHE PATH "Path to DTK installation")
+    elseif(DEFINED ENV{ROCM_PATH})
+      set(DTK_PATH $ENV{ROCM_PATH} CACHE PATH "Path to DTK installation")
+    elseif(EXISTS "/opt/dtk")
+      set(DTK_PATH "/opt/dtk" CACHE PATH "Path to DTK installation")
+    else()
+      set(DTK_PATH "/opt/rocm" CACHE PATH "Path to DTK installation")
+    endif()
+    list(APPEND CMAKE_PREFIX_PATH "${DTK_PATH}" "${DTK_PATH}/lib/cmake")
+    find_package(hip REQUIRED)
+    enable_language(HIP)
+    message(STATUS "Using HIP/DTK at ${DTK_PATH}")
   else()
-    message(WARNING "CUDA ${CUDA_VERSION} does not support CUDA graphs.")
+    find_package(CUDAToolkit REQUIRED)
+    set(CMAKE_CUDA_RUNTIME_LIBRARY Shared)
+    message(STATUS "Using CUDA ${CUDAToolkit_VERSION}")
+
+    if(CUDAToolkit_VERSION VERSION_GREATER "10.1" OR CUDAToolkit_VERSION VERSION_EQUAL "10.1")
+      add_definitions(-DTRITON_ENABLE_CUDA_GRAPH=1)
+    else()
+      message(WARNING "CUDA ${CUDA_VERSION} does not support CUDA graphs.")
+    endif()
   endif()
 endif() # TRITON_ENABLE_GPU
 
@@ -119,14 +155,34 @@ if(${TRITON_ENABLE_GPU})
     src/kernel.cu src/kernel.h
   )
 
-  enable_language(CUDA)
-  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/define.cuda_architectures.cmake)
-  set_target_properties(kernel_library_new PROPERTIES LANGUAGE CUDA)
-  set_target_properties(kernel_library_new PROPERTIES CUDA_ARCHITECTURES "${CUDA_ARCHITECTURES}")
-  set_target_properties(kernel_library_new PROPERTIES POSITION_INDEPENDENT_CODE ON)
-  set_target_properties(kernel_library_new PROPERTIES LINKER_LANGUAGE CUDA)
-  target_compile_features(kernel_library_new PUBLIC cxx_std_${TRITON_MIN_CXX_STANDARD})
-  set_target_properties(kernel_library_new PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+  if(USE_HCU)
+    # HCU: compile the gather kernel with the HIP/DTK toolchain
+    set_source_files_properties(src/kernel.cu PROPERTIES LANGUAGE HIP)
+    target_compile_definitions(kernel_library_new PUBLIC USE_HCU=1)
+    target_include_directories(kernel_library_new PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+      "${DTK_PATH}/include"
+    )
+    set_target_properties(kernel_library_new PROPERTIES
+      LINKER_LANGUAGE HIP
+      POSITION_INDEPENDENT_CODE ON
+    )
+    if(DTK_ARCHS)
+      set_target_properties(kernel_library_new PROPERTIES HIP_ARCHITECTURES "${DTK_ARCHS}")
+    endif()
+    target_compile_features(kernel_library_new PUBLIC cxx_std_${TRITON_MIN_CXX_STANDARD})
+    target_link_libraries(kernel_library_new PUBLIC hip::device hip::host)
+  else()
+    enable_language(CUDA)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/define.cuda_architectures.cmake)
+    set_target_properties(kernel_library_new PROPERTIES LANGUAGE CUDA)
+    set_target_properties(kernel_library_new PROPERTIES CUDA_ARCHITECTURES "${CUDA_ARCHITECTURES}")
+    set_target_properties(kernel_library_new PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    set_target_properties(kernel_library_new PROPERTIES LINKER_LANGUAGE CUDA)
+    target_compile_features(kernel_library_new PUBLIC cxx_std_${TRITON_MIN_CXX_STANDARD})
+    set_target_properties(kernel_library_new PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+  endif()
 
 endif() # TRITON_ENABLE_GPU
 
@@ -164,6 +220,12 @@ if(${TRITON_ENABLE_GPU})
     triton-backend-utils
     PUBLIC TRITON_ENABLE_GPU=1
   )
+  if(USE_HCU)
+    target_compile_definitions(
+      triton-backend-utils
+      PUBLIC USE_HCU=1
+    )
+  endif()
   if(${TRITON_ENABLE_MEMORY_TRACKER})
     target_compile_definitions(
       triton-backend-utils
@@ -205,20 +267,30 @@ target_link_libraries(
 )
 
 if(${TRITON_ENABLE_GPU})
-  target_link_libraries(
-    triton-backend-utils
-    PUBLIC
-      CUDA::cudart
-    PRIVATE
-      kernel_library_new
-  )
-  if(${TRITON_ENABLE_MEMORY_TRACKER})
+  if(USE_HCU)
     target_link_libraries(
       triton-backend-utils
       PUBLIC
-        CUDA::cupti
+        hip::host
+      PRIVATE
+        kernel_library_new
     )
-  endif() # TRITON_ENABLE_MEMORY_TRACKER
+  else()
+    target_link_libraries(
+      triton-backend-utils
+      PUBLIC
+        CUDA::cudart
+      PRIVATE
+        kernel_library_new
+    )
+    if(${TRITON_ENABLE_MEMORY_TRACKER})
+      target_link_libraries(
+        triton-backend-utils
+        PUBLIC
+          CUDA::cupti
+      )
+    endif() # TRITON_ENABLE_MEMORY_TRACKER
+  endif()
 endif() # TRITON_ENABLE_GPU
 
 #

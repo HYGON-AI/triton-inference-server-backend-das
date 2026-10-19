@@ -45,7 +45,11 @@
 #include "triton/common/triton_json.h"
 
 #ifdef TRITON_ENABLE_GPU
+#ifdef USE_HCU
+#include "triton/backend/hcu_compat.h"
+#else
 #include <cuda_runtime_api.h>
+#endif
 #endif  // TRITON_ENABLE_GPU
 
 namespace triton { namespace backend {
