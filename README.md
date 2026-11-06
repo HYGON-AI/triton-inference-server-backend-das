@@ -37,7 +37,11 @@
 - Upstream branch: r26.09
 - Upstream Commit: cb3b36a77377d3d0492697eccd882508ac8c2198
 - Upstream license: BSD-3-Clause
-- Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+- Third-party notices: this repository does not vendor any third-party source
+  tree. Carried content is either upstream Triton Inference Server Backend code
+  (BSD-3-Clause) or HYGON-original files under the same license. Any third-party
+  component introduced in the future must be registered with its provenance,
+  license, and local path in a repository-level third-party notices document.
 
 Modified by Hygon Information Technology Co., Ltd.
 
