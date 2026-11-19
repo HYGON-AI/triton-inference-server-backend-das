@@ -26,4 +26,3 @@ jobs:
               "src_sha": "${{ github.sha }}"
             }
           wait-for-completion: true
-          timeout-minutes: 20
