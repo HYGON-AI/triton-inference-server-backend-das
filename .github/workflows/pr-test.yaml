@@ -5,7 +5,7 @@ on:
 
 jobs:
   trigger-test-ci:
-    name: Trigger HYGON-AI/triton-inference-server-test CI
+    name: Push Trigger HYGON-AI/triton-inference-server-test CI
     runs-on: ubuntu-latest
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
